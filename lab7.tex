@@ -1,0 +1,304 @@
+\documentclass[12pt, letterpaper]{article}
+
+% --- Paquetes ---
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+% --- Encabezado y pie de página ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small CC3182 -- Visión por Computadora}
+\fancyhead[R]{\small Laboratorio 7}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Formato de secciones: solo negrita, sin colores ---
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+% --- Inicio del documento ---
+\begin{document}
+
+% ===================== PORTADA =====================
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+
+    {\large \textbf{Universidad del Valle de Guatemala}\\
+    Facultad de Ingeniería\\
+    CC3182 -- Visión por Computadora}
+
+    \vspace{2cm}
+
+    {\Huge \textbf{Laboratorio 7}}\\[0.5cm]
+    {\Large Transfer Learning y Entrenamiento de Modelos}
+
+    \vspace{2cm}
+
+    \begin{tabular}{ll}
+        \textbf{Integrante 1:} & Andy Fuentes \\[4pt]
+        \textbf{Integrante 2:} & Christian Echeverría \\[4pt]
+        \textbf{Integrante 3:} & Diederich Solís \\
+    \end{tabular}
+
+    \vspace{1.5cm}
+
+    \textbf{Fecha:19/03/2023} \
+    
+    \textbf{Repositorio:https://github.com/DiederichSolis/LAB7vs.git} \
+
+    \vfill
+
+    {\small Dataset utilizado: \textit{Chest X-Ray Images (Pneumonia)} -- Kaggle}
+\end{titlepage}
+
+% ===================== TASK 1 =====================
+\section*{\LARGE Task 1: Análisis de Decisiones de Entrenamiento}
+
+\noindent
+
+% ---- PREGUNTA 1.1 ----
+\section{Pregunta 1.1 -- Data Augmentation}
+
+\subsection{Pregunta 1: ¿Qué es el Data Augmentation y por qué no son datos falsos?}
+
+Para explicarle al médico coordinador qué es el Data Augmentation, usaríamos la siguiente analogía:
+
+\begin{quote}
+\itshape
+Imagine que usted tiene 800 fotografías de radiografías y necesita que un residente de medicina
+aprenda a identificar neumonía. ¿Qué haría si solo tuviera esas 800 fotos? Probablemente las
+mostraría desde distintos ángulos, con diferente iluminación, recortadas de distintas formas,
+para que el residente aprenda a reconocer la enfermedad sin importar cómo venga presentada la imagen.
+Eso es exactamente el Data Augmentation: tomamos las mismas radiografías reales y las mostramos
+de maneras ligeramente distintas al modelo, como si el mismo paciente hubiera sido fotografiado
+con el equipo un poco inclinado, o con el brillo ajustado.
+\end{quote}
+
+Las imágenes generadas no son datos falsos porque \textbf{no se inventa información diagnóstica nueva}.
+Una radiografía rotada 10 grados sigue mostrando el mismo pulmón, las mismas opacidades, el mismo
+diagnóstico. Lo único que cambia es la perspectiva, y eso es exactamente lo que queremos: que el
+modelo aprenda a reconocer neumonía independientemente de cómo esté orientada o iluminada la imagen.
+La patología es la misma; solo varía la forma en que la vemos.
+
+\subsection{Pregunta 2: Transformaciones válidas e inválidas para radiografías de tórax}
+
+A continuación se proponen tres transformaciones adecuadas para este dominio médico, y una que
+\textbf{no} debería aplicarse:
+
+\medskip
+
+\textbf{Transformaciones válidas:}
+
+\begin{enumerate}[leftmargin=1.5cm]
+    \item \textbf{Rotación pequeña ($\pm$10°):} En la práctica clínica, los pacientes no siempre
+    están perfectamente alineados cuando se toma la radiografía. Una ligera rotación simula esa
+    variación real. Se mantiene dentro de un rango pequeño para no distorsionar la anatomía
+    de referencia (como la posición del corazón o el diafragma).
+
+    \item \textbf{Ajuste de brillo y contraste:} Los equipos de rayos X en diferentes clínicas
+    pueden producir imágenes con exposiciones distintas. Variar el brillo y el contraste entrena
+    al modelo para ser robusto ante diferencias de calibración entre equipos, algo muy relevante
+    para clínicas rurales que pueden no tener el mismo equipo estandarizado.
+
+    \item \textbf{Zoom aleatorio suave (hasta 10--15\%):} Simula variaciones en la distancia
+    del paciente al detector o diferencias en el campo de visión según el técnico. Permite que
+    el modelo aprenda a identificar opacidades sin depender de que el pulmón ocupe exactamente
+    el mismo espacio en la imagen.
+\end{enumerate}
+
+\medskip
+
+\textbf{Transformación que NO debería aplicarse:}
+
+\textbf{Volteo horizontal (flip):} Esta transformación sería problemática porque el corazón
+está ubicado en el lado izquierdo del tórax. Si se aplica un volteo horizontal, el modelo podría
+ver imágenes donde el corazón aparece en el lado derecho, lo cual correspondería a una condición
+médica real llamada \textit{dextrocardia}. Esto podría confundir al modelo y, peor aún, podría
+enseñarle patrones anatómicos incorrectos que luego aplique en producción, comprometiendo
+directamente la integridad diagnóstica.
+
+\subsection{Pregunta 3: ¿Es el Data Augmentation suficiente por sí solo?}
+
+No, el Data Augmentation solo no es suficiente para garantizar que el modelo generalice bien,
+aunque es una herramienta muy importante. Existen otras variables críticas que también influyen:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item \textbf{Calidad del etiquetado:} Si las 800 radiografías tienen errores en las etiquetas
+    (por ejemplo, casos de neumonía marcados como normales), el augmentation va a multiplicar esos
+    errores. Más variaciones de datos mal etiquetados no ayudan.
+
+    \item \textbf{Regularización:} El augmentation ayuda a reducir el overfitting, pero técnicas
+    como Dropout, L2 o Early Stopping complementan ese efecto desde la perspectiva del modelo
+    mismo. Sin ellas, un modelo puede seguir memorizando incluso con datos aumentados.
+
+    \item \textbf{Arquitectura del modelo y Transfer Learning:} Con solo 800 imágenes, la
+    arquitectura importa mucho. Usar un modelo pre-entrenado con Transfer Learning puede suplir
+    parte de la escasez de datos al ya traer ``conocimiento visual'' de millones de imágenes.
+
+    \item \textbf{Representatividad del dataset original:} Si las 800 radiografías provienen de
+    un solo hospital con un solo equipo de rayos X, el augmentation no va a simular la variabilidad
+    real de distintos equipos y poblaciones. La diversidad base del dataset también importa.
+\end{itemize}
+
+En resumen, el Data Augmentation es una pieza del rompecabezas, pero no el rompecabezas completo.
+
+% ---- PREGUNTA 1.2 ----
+\section{Pregunta 1.2 -- Overfitting en las Curvas de Loss}
+
+Los siguientes datos fueron registrados durante el entrenamiento del modelo de MediScan Guatemala:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{ccc}
+\toprule
+\textbf{Época} & \textbf{Loss de Entrenamiento} & \textbf{Loss de Validación} \\
+\midrule
+5  & 0.52 & 0.55 \\
+10 & 0.31 & 0.38 \\
+15 & 0.18 & 0.42 \\
+20 & 0.09 & 0.61 \\
+25 & 0.04 & 0.89 \\
+\bottomrule
+\end{tabular}
+\caption{Curvas de loss durante 25 épocas de entrenamiento.}
+\end{table}
+
+\subsection{Pregunta 4: ¿A partir de qué época comienza el sobreajuste?}
+
+El sobreajuste comienza a evidenciarse claramente a partir de la \textbf{época 15}. La señal más
+clara es la divergencia entre las dos curvas de loss:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item En la época 10, ambas métricas siguen bajando juntas (0.31 vs 0.38), lo cual es
+    comportamiento normal de un modelo que todavía está aprendiendo de forma generalizable.
+
+    \item En la época 15, el loss de entrenamiento baja a 0.18, pero el de validación sube a 0.42.
+    Aquí el modelo ya está mejorando en los datos que conoce, pero empeorando en los que no ha visto.
+    Eso es la definición de overfitting.
+
+    \item Para la época 25, la brecha es dramática: 0.04 de entrenamiento vs 0.89 de validación.
+    El modelo memorizó casi a la perfección los 800 ejemplos, pero no aprendió nada útil para
+    radiografías nuevas.
+\end{itemize}
+
+\subsection{Pregunta 5: Estrategias de regularización para prevenir el overfitting}
+
+\begin{enumerate}[leftmargin=1.5cm]
+
+    \item \textbf{Dropout:} Esta técnica consiste en ``apagar'' aleatoriamente un porcentaje de
+    neuronas durante cada paso de entrenamiento. El fenómeno matemático que mitiga es la
+    \textit{co-adaptación} entre neuronas, es decir, evita que ciertas neuronas dependan tanto
+    de otras que se especialicen en memorizar ejemplos específicos. Con Dropout, cada neurona
+    tiene que aprender a ser útil por sí sola. En las curvas de la tabla, esperaríamos ver que
+    el loss de validación deje de subir a partir de la época 15 y se mantenga más estable, aunque
+    el de entrenamiento quizás baje un poco más lento.
+
+    \item \textbf{Early Stopping:} Aunque técnicamente no es una penalización matemática sobre
+    los pesos, sí es una forma de regularización muy efectiva. Consiste en detener el entrenamiento
+    cuando el loss de validación deja de mejorar (o comienza a empeorar) por un número determinado
+    de épocas (``paciencia''). Lo que mitiga es el \textit{sobre-entrenamiento temporal}: el modelo
+    aprende cosas útiles hasta cierto punto, y si lo dejamos continuar solo sigue memorizando
+    ruido. En la tabla, habríamos parado alrededor de la época 12--13, donde la validación
+    todavía estaba mejorando. Eso habría dado un modelo mucho más generalizable.
+
+\end{enumerate}
+
+\subsection{Pregunta 6: ¿Por qué es peligroso desplegar este modelo en producción?}
+
+Desde una perspectiva médica, este patrón de sobreajuste es especialmente peligroso porque el
+modelo aprendió a reconocer las \textbf{800 radiografías específicas} que le mostramos, no la
+enfermedad en sí misma. Cuando llegue una radiografía de un paciente nuevo --tomada con un equipo
+diferente, en una posición ligeramente distinta, de una persona de otra edad o complexión-- el
+modelo fallará.
+
+El problema no es solo técnico; es clínico. Un falso negativo en este contexto significa decirle
+a un médico que el paciente está bien cuando en realidad tiene neumonía. En clínicas rurales donde
+el sistema de MediScan puede ser el único apoyo diagnóstico disponible, ese error puede resultar
+en que un paciente con neumonía no reciba tratamiento oportuno, con consecuencias potencialmente
+graves o fatales.
+
+Además, un modelo con overfitting extremo tiende a ser impredecible: puede acertar en algunos
+casos pero fallar estrepitosamente en otros sin ninguna señal de advertencia. Esa inconsistencia
+es incompatible con un entorno clínico donde la confiabilidad es fundamental.
+
+% ---- PREGUNTA 1.3 ----
+\section{Pregunta 1.3 -- Métricas y Clases Desbalanceadas}
+
+El dataset de prueba contiene \textbf{700 radiografías normales} y \textbf{150 con neumonía},
+para un total de 850 imágenes.
+
+\subsection{Pregunta 7: Accuracy del modelo naive y qué revela sobre el 94\%}
+
+Un modelo ``naive'' que siempre predice ``Normal'' sin analizar nada acertaría en todas las 700
+imágenes normales y fallaría en las 150 de neumonía. Su accuracy sería:
+
+\[
+\text{Accuracy}_{\text{naive}} = \frac{700}{850} \approx \mathbf{82.35\%}
+\]
+
+Esto revela algo importante: si un modelo que \textbf{ni siquiera analiza las imágenes} alcanza
+un 82\%, entonces el 94\% reportado no es tan impresionante. La diferencia entre ambos es de apenas
+12 puntos porcentuales. Peor aún, no sabemos si ese porcentaje adicional de mejora viene de detectar
+correctamente casos de neumonía, o simplemente de clasificar bien un poco más de imágenes normales.
+El accuracy como métrica única nos oculta completamente si el modelo está detectando la enfermedad
+que nos importa.
+
+\subsection{Pregunta 8: ¿Por qué F1-Score y Sensibilidad son más informativas?}
+
+En problemas médicos con clases desbalanceadas, el accuracy puede ser engañoso porque mide
+el desempeño global sin distinguir entre clases. Las métricas más informativas son:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item \textbf{Sensibilidad (Recall):} Mide qué proporción de los casos de neumonía reales
+    el modelo logró identificar correctamente. Su fórmula es:
+    \[
+    \text{Recall} = \frac{\text{Verdaderos Positivos (VP)}}{\text{Verdaderos Positivos (VP)} + \text{Falsos Negativos (FN)}}
+    \]
+    Clínicamente, una baja sensibilidad significa muchos falsos negativos, es decir, pacientes con
+    neumonía a quienes se les dice que están sanos. Ese es el error más peligroso en este contexto,
+    porque podría llevar a no tratar una enfermedad que sí existe.
+
+    \item \textbf{F1-Score:} Es el promedio armónico entre Precisión y Recall:
+    \[
+    F1 = 2 \cdot \frac{\text{Precisión} \times \text{Recall}}{\text{Precisión} + \text{Recall}}
+    \]
+    El F1 es útil porque obliga a que el modelo sea bueno en ambas cosas: no solo detectar todos
+    los casos de neumonía (recall alto), sino también no alarmar al médico con falsos positivos
+    innecesarios (precisión alta). En clínicas rurales con recursos limitados, un exceso de
+    alarmas falsas puede generar desconfianza en el sistema y sobrecargar al médico.
+\end{itemize}
+
+En resumen, el accuracy es una métrica de conveniencia; el Recall y el F1 son métricas de
+\textit{responsabilidad clínica}.
+
+\subsection{Pregunta 9: Respuesta honesta al inversionista}
+
+\begin{quote}
+\itshape
+``El 94\% de accuracy de nuestro modelo es alentador, pero queremos ser transparentes: dado que
+la mayoría de las imágenes de prueba son de pacientes sanos, incluso un sistema que nunca detecte
+neumonía podría alcanzar el 82\% de accuracy. Lo que realmente importa para un sistema médico es
+qué tan bien identifica los casos de enfermedad cuando sí existen, y para eso utilizamos métricas
+como la Sensibilidad y el F1-Score, que miden justo eso. Nuestro siguiente paso es optimizar el
+modelo específicamente en esas métricas, y someterlo a validación con radiólogos antes de cualquier
+despliegue. El objetivo no es impresionar con un número; es construir un sistema en el que los
+médicos de las clínicas rurales puedan confiar.''
+\end{quote}
+
+% ===================== FIN =====================
+\vfill
+\begin{center}
+    \small CC3182 -- Visión por Computadora $\cdot$ Universidad del Valle de Guatemala $\cdot$ 2026
+\end{center}
+
+\end{document}
