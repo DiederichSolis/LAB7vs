@@ -52,7 +52,7 @@
 
     \vspace{1.5cm}
 
-    \textbf{Fecha:19/03/2023} \
+    \textbf{Fecha:26/03/2026} \
     
     \textbf{Repositorio:https://github.com/DiederichSolis/LAB7vs.git} \
 
@@ -294,6 +294,320 @@ modelo específicamente en esas métricas, y someterlo a validación con radiól
 despliegue. El objetivo no es impresionar con un número; es construir un sistema en el que los
 médicos de las clínicas rurales puedan confiar.''
 \end{quote}
+
+% ===================== TASK 2 =====================
+\newpage
+\section*{\LARGE Task 2: Transfer Learning y Fine-Tuning}
+
+\noindent
+
+% ---- PREGUNTA 2.1 ----
+\section{Pregunta 2.1 -- Transfer Learning desde ImageNet}
+
+\subsection{Pregunta 1: ¿Está de acuerdo con el desarrollador?}
+
+No, no estamos de acuerdo con el desarrollador. Su argumento parte de una idea intuitiva pero
+incorrecta: que porque ImageNet tiene fotos de perros y gatos, lo que la red aprendió no sirve
+para radiografías. La realidad es que las capas convolucionales de una CNN no aprenden ``perros''
+o ``gatos'' directamente; aprenden \textbf{jerarquías de características visuales} que son
+universales.
+
+Las primeras capas de una red pre-entrenada en ImageNet aprenden detectores de bordes,
+gradientes, texturas y patrones de frecuencia. Estas son características fundamentales de
+\textit{cualquier} imagen, incluyendo radiografías. Un borde es un borde sin importar si
+aparece en la oreja de un gato o en el contorno de un pulmón. Las capas intermedias aprenden
+combinaciones más complejas como formas geométricas, patrones repetitivos y relaciones
+espaciales, que también son relevantes para detectar opacidades o consolidaciones pulmonares.
+
+Solo las capas finales (las más profundas) son las que se especializan en clasificar objetos
+específicos de ImageNet. Pero esas son precisamente las capas que \textbf{reemplazamos} cuando
+hacemos Transfer Learning. Descartamos el cabezal de clasificación de 1000 clases de ImageNet
+y lo sustituimos por uno adaptado a nuestro problema binario (Normal vs.\ Neumonía).
+
+El hecho de que las radiografías sean imágenes en escala de grises tampoco invalida la
+transferencia: las redes pre-entrenadas en ImageNet esperan 3 canales (RGB), pero simplemente
+replicamos el canal de grises tres veces. La información de bajo nivel que la red ya aprendió
+(contrastes, bordes, texturas) sigue siendo perfectamente aplicable. Múltiples estudios en
+imagen médica han demostrado que modelos pre-entrenados en ImageNet superan consistentemente
+a los entrenados desde cero cuando se dispone de datasets pequeños, precisamente porque esa
+base de conocimiento visual genérico actúa como un ``punto de partida informado'' que reduce
+drásticamente la cantidad de datos necesarios para converger.
+
+\subsection{Pregunta 2: Costo real de entrenar desde cero para MediScan Guatemala}
+
+Más allá del costo computacional (que ya de por sí es significativo: entrenar una ResNet50
+desde cero requiere cientos de miles de imágenes y muchas horas de GPU), hay al menos dos
+dimensiones críticas que hacen inviable esta decisión para una startup como MediScan Guatemala:
+
+\begin{enumerate}[leftmargin=1.5cm]
+    \item \textbf{Tiempo al mercado (time-to-market):} Una startup médica compite contra el
+    reloj. Cada mes adicional de desarrollo sin un producto funcional es un mes sin ingresos,
+    sin validación clínica y sin retroalimentación de usuarios reales. Con Transfer Learning,
+    se puede tener un modelo funcional en días o semanas. Entrenando desde cero con solo 800
+    imágenes, no solo tomaría mucho más tiempo experimentar con arquitecturas, sino que el
+    resultado probablemente sería inferior. Mientras MediScan está intentando que su modelo
+    desde cero aprenda qué es un borde, un competidor con Transfer Learning ya está en fase
+    de pruebas clínicas.
+
+    \item \textbf{Riesgo técnico y de rendimiento:} Con 800 imágenes, un modelo entrenado desde
+    cero tiene una probabilidad altísima de sobreajustar, exactamente como vimos en el Task~1
+    con las curvas de loss. Los pesos inicializados aleatoriamente necesitan grandes cantidades
+    de datos para converger a representaciones útiles. En cambio, los pesos pre-entrenados ya
+    codifican millones de patrones visuales, lo que actúa como una forma implícita de
+    regularización. El riesgo de obtener un modelo clínicamente inútil es mucho mayor
+    entrenando desde cero, y en un contexto médico ese riesgo se traduce directamente en
+    diagnósticos fallidos.
+\end{enumerate}
+
+Una tercera dimensión relevante es el \textbf{talento humano}: diseñar y depurar una
+arquitectura desde cero requiere experiencia profunda en deep learning. Con Transfer Learning,
+un equipo con conocimientos sólidos pero no necesariamente expertos en diseño de arquitecturas
+puede lograr resultados competitivos usando modelos probados por la comunidad investigadora.
+
+\subsection{Pregunta 3: ¿Existe un escenario legítimo para entrenar desde cero?}
+
+Sí, existe un escenario legítimo: cuando se dispone de un \textbf{dataset masivo} (decenas o
+cientos de miles de imágenes) de un dominio que es \textbf{fundamentalmente diferente} a las
+imágenes naturales de ImageNet, y cuando además se tiene acceso a los recursos computacionales
+necesarios.
+
+Un ejemplo concreto sería si MediScan Guatemala, después de varios años de operación, lograra
+recopilar más de 100,000 radiografías etiquetadas por radiólogos certificados, y además quisiera
+construir un modelo especializado que no solo detecte neumonía sino múltiples patologías
+pulmonares con alta granularidad (tuberculosis, derrame pleural, cardiomegalia, nódulos, etc.).
+En ese caso, entrenar una arquitectura diseñada específicamente para radiografías ---quizás
+con un solo canal de entrada, bloques convolucionales optimizados para el rango dinámico de
+rayos X, y un esquema de atención adaptado a la anatomía torácica--- podría superar al Transfer
+Learning porque la red aprendería representaciones internas \textit{nativamente} optimizadas
+para ese dominio, sin arrastrar sesgos de ImageNet (como la tendencia de las capas tempranas
+a sobre-representar texturas de color que no existen en radiografías).
+
+Sin embargo, para el estado actual de MediScan Guatemala ---800 imágenes, recursos limitados,
+necesidad de resultados rápidos--- entrenar desde cero sería una decisión técnicamente
+injustificable.
+
+% ---- PREGUNTA 2.2 ----
+\section{Pregunta 2.2 -- Estrategia de Fine-Tuning}
+
+\subsection{Pregunta 4: ¿Opción A o B para el dataset de MediScan Guatemala?}
+
+Recomendamos la \textbf{Opción A: congelar toda la red base} y entrenar únicamente el cabezal
+de clasificación, al menos como punto de partida.
+
+La lógica detrás de esta recomendación se basa en la interacción entre el tamaño del dataset
+y la cantidad de parámetros entrenables:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item Con solo \textbf{800 imágenes}, la cantidad de datos es extremadamente limitada.
+    Si descongelamos toda la red (Opción~B), estamos exponiendo millones de parámetros
+    (ResNet50 tiene aproximadamente 23 millones) a un proceso de optimización con muy pocos
+    ejemplos. Esto es una receta directa para el sobreajuste: la red tiene mucha más capacidad
+    de la que los datos pueden supervisar.
+
+    \item Al congelar las capas base, estamos aprovechando las representaciones visuales ya
+    aprendidas de ImageNet (bordes, texturas, formas) sin arriesgarnos a destruirlas. Solo
+    entrenamos el cabezal final, que tiene muchos menos parámetros, lo que reduce drásticamente
+    el riesgo de overfitting.
+
+    \item La tasa de aprendizaje alta (1e-3) de la Opción~A es razonable \textit{solo para el
+    cabezal}, porque sus pesos se inicializan desde cero y necesitan ajustes grandes para
+    converger. Las capas congeladas no se ven afectadas por esta tasa porque sus gradientes
+    están desactivados.
+\end{itemize}
+
+Dicho esto, la Opción~A pura puede no ser suficiente si el dominio de radiografías es
+demasiado distinto de ImageNet. Una estrategia híbrida razonable sería: primero entrenar con
+Opción~A hasta que el cabezal converja, y luego descongelar las últimas 2--3 capas de la red
+base con una tasa muy baja (1e-5) para hacer un ajuste fino controlado. Esto combina la
+seguridad de A con la adaptabilidad parcial de B.
+
+\subsection{Pregunta 5: Riesgo de la Opción B con tasa de aprendizaje alta}
+
+Si aplicamos la Opción~B con una tasa de aprendizaje alta (1e-3) en \textbf{toda} la red, el
+riesgo principal es el \textbf{catastrophic forgetting} (olvido catastrófico). Este fenómeno
+ocurre cuando los gradientes grandes generados por una tasa de aprendizaje alta modifican
+drásticamente los pesos pre-entrenados, destruyendo las representaciones útiles que la red ya
+había aprendido de ImageNet.
+
+En términos concretos, lo que sucedería es lo siguiente: las capas tempranas que ya sabían
+detectar bordes, texturas y patrones básicos serían sobrescritas con pesos ajustados
+exclusivamente a las 800 radiografías de entrenamiento. El resultado es que la red ``olvida''
+todo su conocimiento previo y se convierte, efectivamente, en un modelo entrenado desde cero
+pero peor, porque partió de pesos que fueron \textit{desestabilizados} en lugar de
+inicializados de forma controlada.
+
+Durante el entrenamiento, esto se evidenciaría de varias formas:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item El loss de entrenamiento podría \textbf{aumentar abruptamente} en las primeras épocas,
+    porque los pesos pre-entrenados se están destruyendo y la red pierde temporalmente su
+    capacidad de extraer características útiles.
+
+    \item Después de ese pico, el modelo podría empezar a bajar el loss de entrenamiento
+    rápidamente, pero el loss de validación no lo seguiría, mostrando un patrón de
+    \textbf{overfitting severo} similar (o peor) al que vimos en la tabla del Task~1.
+
+    \item La métrica de accuracy en validación podría ser \textbf{inestable}, con oscilaciones
+    grandes entre épocas, lo cual es un signo clásico de que la tasa de aprendizaje es
+    demasiado alta para las capas que se están ajustando.
+\end{itemize}
+
+Por eso la Opción~B original propone una tasa de 1e-5: lo suficientemente baja para hacer
+ajustes finos sin destruir lo aprendido. Pero con 800 imágenes, incluso esa tasa es riesgosa
+si se aplica a toda la red.
+
+\subsection{Pregunta 6: ¿Cambiaría la recomendación con 50,000 radiografías?}
+
+Sí, con 50,000 radiografías etiquetadas la recomendación cambiaría significativamente. La
+estrategia de Fine-Tuning evolucionaría de la siguiente manera:
+
+\begin{enumerate}[leftmargin=1.5cm]
+    \item \textbf{Fase 1 -- Cabezal (igual que antes):} Seguiríamos empezando por congelar toda
+    la red base y entrenar el cabezal de clasificación con una tasa de aprendizaje alta (1e-3).
+    Esto establece una buena línea base y permite que el cabezal aprenda a mapear las
+    representaciones existentes al problema de neumonía.
+
+    \item \textbf{Fase 2 -- Descongelamiento progresivo:} Con 50,000 imágenes, ahora sí
+    tendríamos suficientes datos para supervisar el ajuste de capas más profundas sin
+    sobreajustar. Descongelaríamos la red por bloques, empezando por las capas más profundas
+    (cercanas al cabezal) y avanzando hacia las más tempranas. Cada bloque descongelado se
+    entrenaría con una tasa de aprendizaje decreciente (discriminative learning rates):
+    1e-4 para las últimas capas, 1e-5 para las intermedias, 1e-6 para las tempranas.
+
+    \item \textbf{Fase 3 -- Fine-Tuning completo:} Con esta cantidad de datos, eventualmente
+    podríamos descongelar toda la red con una tasa global muy baja (1e-5 o menor) para un
+    ajuste final. Esto permitiría que incluso las capas tempranas se adapten ligeramente al
+    dominio de rayos X, aprendiendo detectores de bordes y texturas optimizados para el rango
+    dinámico y las características específicas de las radiografías.
+\end{enumerate}
+
+La razón del cambio es simple: con más datos, el riesgo de overfitting disminuye
+proporcionalmente, y el beneficio de adaptar capas profundas al dominio específico aumenta.
+Con 50,000 imágenes, la red tendría suficientes ejemplos para aprender representaciones
+médicas especializadas sin destruir la estructura general aprendida de ImageNet. Es un
+balance: más datos permiten más libertad para ajustar sin perder generalización.
+
+% ---- PREGUNTA 2.3 ----
+\section{Pregunta 2.3 -- Reutilización del Modelo para Fracturas}
+
+\subsection{Pregunta 7: Viabilidad de reutilizar el modelo de neumonía para fracturas de muñeca}
+
+La reutilización es \textbf{parcialmente viable}, pero no directa. Para entender qué partes
+del modelo podemos aprovechar, debemos analizar qué ha aprendido cada sección de la red:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item \textbf{Capas tempranas (aprovechables):} Los detectores de bordes, gradientes,
+    texturas y patrones de bajo nivel que la red aprendió (primero de ImageNet y luego
+    refinados para radiografías de tórax) son perfectamente aplicables a radiografías de
+    muñeca. Un borde óseo, una línea de fractura, un cambio de densidad ---todo esto depende
+    de las mismas primitivas visuales que las capas tempranas ya codifican.
+
+    \item \textbf{Capas intermedias (parcialmente aprovechables):} Estas capas han aprendido
+    patrones espaciales y combinaciones de características que son más específicas al tórax:
+    la forma de los pulmones, la posición del corazón, la distribución de opacidades. Algunas
+    de estas representaciones podrían ser útiles (como la capacidad de detectar cambios de
+    densidad en tejido óseo), pero otras serían irrelevantes para la anatomía de la muñeca.
+
+    \item \textbf{Capas finales y cabezal (no aprovechables):} El cabezal de clasificación
+    está entrenado específicamente para distinguir ``Normal'' de ``Neumonía'' en tórax.
+    Esto no tiene ninguna utilidad para detectar fracturas en muñeca. Además, la anatomía
+    que las capas más profundas aprendieron a reconocer (pulmones, diafragma) es completamente
+    diferente a la de la muñeca (radio, cúbito, huesos del carpo).
+\end{itemize}
+
+En resumen: el modelo no puede ``reutilizarse directamente'' como sugiere el hospital, pero sí
+puede servir como un excelente punto de partida para Transfer Learning hacia el nuevo dominio.
+
+\subsection{Pregunta 8: Plan de acción en tres pasos}
+
+\begin{enumerate}[leftmargin=1.5cm]
+    \item \textbf{Paso 1 -- Reemplazar el cabezal de clasificación:} Eliminar la capa final
+    del modelo de neumonía y sustituirla por un nuevo cabezal adaptado al problema de fracturas.
+    Si el nuevo problema es binario (fractura vs.\ normal), el cabezal tendría una estructura
+    similar (capas densas con activación sigmoide), pero con pesos inicializados desde cero.
+    Si se requiere clasificación más granular (tipo de fractura, ubicación), el cabezal debería
+    tener más neuronas de salida.
+
+    \item \textbf{Paso 2 -- Congelar capas tempranas e intermedias, entrenar el cabezal:}
+    Congelar todas las capas convolucionales de la red base y entrenar únicamente el nuevo
+    cabezal con una tasa de aprendizaje de 1e-3. Esto permite que el modelo aprenda a mapear
+    las representaciones visuales existentes al nuevo problema sin destruir los detectores
+    de bajo nivel. Monitorear el loss de validación con Early Stopping (paciencia de 5--7
+    épocas).
+
+    \item \textbf{Paso 3 -- Descongelamiento selectivo de las últimas capas:} Una vez que el
+    cabezal haya convergido, descongelar las últimas 2--3 capas convolucionales (las más
+    profundas) y re-entrenar con una tasa de aprendizaje baja (1e-5). Esto permite que la
+    red adapte sus representaciones de alto nivel a la anatomía de la muñeca, que es
+    estructuralmente diferente al tórax. Las capas tempranas permanecen congeladas porque
+    sus detectores de bordes y texturas son igualmente válidos para ambos dominios.
+\end{enumerate}
+
+\subsection{Pregunta 9: Riesgo ético/clínico y validación mínima}
+
+Reutilizar un modelo entrenado en un dominio para otro dominio médico sin validación rigurosa
+implica varios riesgos serios:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item \textbf{Sesgo de dominio oculto:} El modelo puede arrastrar sesgos aprendidos del
+    dominio original. Por ejemplo, si el modelo de neumonía aprendió a asociar ciertas
+    densidades con ``Normal'', podría aplicar ese mismo criterio erróneamente a una radiografía
+    de muñeca donde una densidad similar indica una fractura por estrés. Estos sesgos son
+    difíciles de detectar sin validación formal.
+
+    \item \textbf{Falsa confianza:} Si el modelo muestra métricas de accuracy razonables en
+    pruebas iniciales, el equipo podría asumir que funciona bien, cuando en realidad puede
+    estar fallando en casos atípicos o en tipos específicos de fractura que no estaban bien
+    representados en los datos de entrenamiento.
+
+    \item \textbf{Responsabilidad clínica:} Un diagnóstico erróneo de fractura puede llevar a
+    que un paciente no reciba inmovilización, lo que puede resultar en consolidación incorrecta,
+    daño permanente o necesidad de cirugía posterior. En el otro extremo, un falso positivo
+    podría generar tratamientos e inmovilizaciones innecesarias.
+\end{itemize}
+
+El proceso de validación mínimo antes de cualquier despliegue debería incluir:
+
+\begin{enumerate}[leftmargin=1.5cm]
+    \item \textbf{Validación con dataset independiente:} Evaluar el modelo con un conjunto de
+    radiografías de muñeca que \textbf{no} se usaron durante el entrenamiento ni el Fine-Tuning,
+    idealmente provenientes de diferentes hospitales y equipos de rayos X para evaluar
+    generalización.
+
+    \item \textbf{Revisión por especialistas:} Someter los resultados a revisión por
+    traumatólogos y radiólogos que evalúen no solo las métricas globales, sino los casos
+    específicos donde el modelo falla. Esto permite identificar patrones de error
+    clínicamente peligrosos que las métricas agregadas no capturan.
+
+    \item \textbf{Fase piloto controlada:} Desplegar el modelo en modo de ``segunda opinión''
+    (nunca como único diagnóstico) durante un período de prueba, donde cada predicción es
+    verificada por un médico. Solo después de demostrar consistencia y seguridad en esta fase
+    se podría considerar un despliegue más amplio.
+
+    \item \textbf{Métricas específicas por tipo de fractura:} No basta con reportar accuracy
+    global. Se deben calcular sensibilidad y especificidad desglosadas por tipo de fractura
+    (Colles, Smith, escafoides, etc.), porque el modelo podría funcionar bien para fracturas
+    obvias pero fallar en fracturas sutiles que son las más difíciles y las que más necesitan
+    apoyo diagnóstico.
+\end{enumerate}
+
+En conclusión, reutilizar el modelo es técnicamente factible y recomendable desde una
+perspectiva de eficiencia, pero éticamente inaceptable sin un proceso de validación que
+confirme que el modelo es seguro para el nuevo dominio. La tecnología es transferible; la
+confianza clínica debe ganarse desde cero.
+
+% ===================== TASK 4 =====================
+\newpage
+\section*{\LARGE Task 4: Comentario en LinkedIn}
+
+A continuación se muestra la captura de pantalla del comentario realizado en la publicación
+de LinkedIn del curso, junto con las reacciones de los demás integrantes del grupo.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.85\textwidth]{comentario_linkedin.png}
+    \caption{Captura de pantalla del comentario en la publicación de LinkedIn del curso.}
+\end{figure}
 
 % ===================== FIN =====================
 \vfill
